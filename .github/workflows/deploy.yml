@@ -20,6 +20,11 @@ jobs:
               -e "s|%%SUPABASE_ANON_KEY%%|${{ secrets.SUPABASE_ANON_KEY }}|g" \
               js/supabaseClient.template.js > js/supabaseClient.js
 
+      - name: Clean up temporary files 🧹
+        run: |
+          rm -rf supabase
+          rm -rf js/supabaseClient.template.js
+
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4
         with:
@@ -29,3 +34,5 @@ jobs:
           folder: .
           clean: true
           single-commit: true
+          clean-exclude: |
+            .github
