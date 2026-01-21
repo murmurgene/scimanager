@@ -20,10 +20,13 @@ jobs:
               -e "s|%%SUPABASE_ANON_KEY%%|${{ secrets.SUPABASE_ANON_KEY }}|g" \
               js/supabaseClient.template.js > js/supabaseClient.js
 
-      - name: Clean up temporary files 🧹
+      - name: Prepare Deployment Folder 📦
         run: |
-          rm -rf supabase
-          rm -rf js/supabaseClient.template.js
+          mkdir deploy_dist
+          cp -rp * deploy_dist/
+          rm -rf deploy_dist/.github
+          rm -rf deploy_dist/supabase
+          rm -rf deploy_dist/js/supabaseClient.template.js
 
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4
@@ -31,7 +34,7 @@ jobs:
           token: ${{ secrets.DEPLOY_TOKEN }}
           repository-name: pogoksci/pogoksci.github.io
           branch: main
-          folder: .
+          folder: deploy_dist
           clean: true
           single-commit: true
           clean-exclude: |
