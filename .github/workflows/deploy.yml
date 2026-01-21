@@ -23,10 +23,7 @@ jobs:
       - name: Prepare Deployment Folder 📦
         run: |
           mkdir deploy_dist
-          cp -rp * deploy_dist/
-          rm -rf deploy_dist/.github
-          rm -rf deploy_dist/supabase
-          rm -rf deploy_dist/js/supabaseClient.template.js
+          rsync -av --exclude='.github' --exclude='supabase' --exclude='deploy_dist' . deploy_dist/
 
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4
