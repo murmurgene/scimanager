@@ -23,7 +23,7 @@ jobs:
       - name: Prepare Deployment Folder 📦
         run: |
           mkdir deploy_dist
-          rsync -av --exclude='.github' --exclude='supabase' --exclude='deploy_dist' . deploy_dist/
+          rsync -av --progress --exclude='.github' --exclude='supabase' --exclude='deploy_dist' . deploy_dist/
 
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4
