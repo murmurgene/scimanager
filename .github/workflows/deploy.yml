@@ -16,8 +16,8 @@ jobs:
 
       - name: Inject Supabase Config 🔐
         run: |
-          sed -e "s|%%URL%%|${{ secrets.SUPABASE_URL }}|g" \
-              -e "s|%%KEY%%|${{ secrets.SUPABASE_ANON_KEY }}|g" \
+          sed -e "s|%%SUPABASE_URL%%|${{ secrets.SUPABASE_URL }}|g" \
+              -e "s|%%SUPABASE_ANON_KEY%%|${{ secrets.SUPABASE_ANON_KEY }}|g" \
               js/supabaseClient.template.js > js/supabaseClient.js
 
       - name: Deploy 🚀
