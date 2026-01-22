@@ -22,6 +22,18 @@
     return;
   }
 
+  // ------------------------------------------------------------
+  // 🔐 Deployment Verification
+  // ------------------------------------------------------------
+  if (SUPABASE_URL.includes("%%SUPABASE_URL%%") || SUPABASE_ANON_KEY.includes("%%SUPABASE_ANON_KEY%%")) {
+    console.error("❌ FATAL: Supabase Secrets were NOT injected during deployment!");
+    console.error("ℹ️ Please check GitHub Repository Settings > Secrets and Variables > Actions");
+    console.error("ℹ️ Ensure 'SUPABASE_URL' and 'SUPABASE_ANON_KEY' are defined.");
+    
+    // Stop execution to prevent 'undefined' errors later
+    return;
+  }
+
   try {
     const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
