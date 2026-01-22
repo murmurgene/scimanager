@@ -39,7 +39,7 @@ jobs:
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.DEPLOY_TOKEN }}
           repository-name: pogoksci/pogoksci.github.io
           branch: main
           folder: deploy_dist
