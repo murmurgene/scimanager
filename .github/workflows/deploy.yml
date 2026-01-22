@@ -25,11 +25,18 @@ jobs:
             exit 1
           fi
 
-      - name: Inject Supabase Config 🔐
+      - name: Inject Supabase Config (Python) 🐍
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          sed -e "s|%%SUPABASE_URL%%|${{ secrets.SUPABASE_URL }}|g" \
-              -e "s|%%SUPABASE_ANON_KEY%%|${{ secrets.SUPABASE_ANON_KEY }}|g" \
-              js/supabaseClient.template.js > js/supabaseClient.js
+          python3 -c "
+          import os
+          with open('js/supabaseClient.template.js', 'r', encoding='utf-8') as f: content = f.read()
+          content = content.replace('%%SUPABASE_URL%%', os.environ['SUPABASE_URL'])
+          content = content.replace('%%SUPABASE_ANON_KEY%%', os.environ['SUPABASE_ANON_KEY'])
+          with open('js/supabaseClient.js', 'w', encoding='utf-8') as f: f.write(content)
+          "
 
       - name: Prepare Deployment Folder 📦
         run: |
