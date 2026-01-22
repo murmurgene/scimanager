@@ -14,6 +14,17 @@ jobs:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
 
+      - name: Check Secrets 🔍
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
+            echo "::error::SUPABASE_URL secret is NOT set!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "::error::SUPABASE_ANON_KEY secret is NOT set!"
+            exit 1
+          fi
+
       - name: Inject Supabase Config 🔐
         run: |
           sed -e "s|%%SUPABASE_URL%%|${{ secrets.SUPABASE_URL }}|g" \
