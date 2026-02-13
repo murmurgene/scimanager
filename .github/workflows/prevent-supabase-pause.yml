@@ -1,0 +1,36 @@
+name: Prevent Supabase Pause
+
+on:
+  schedule:
+    # Run at 00:00 UTC every day
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase Database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          # Send a simple GET request to configs table to generate traffic
+          # Using curl with the anon key for authentication
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Error: Secrets SUPABASE_URL and/or SUPABASE_ANON_KEY are not set."
+            exit 1
+          fi
+
+          echo "Pinging Supabase at $SUPABASE_URL..."
+          
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$SUPABASE_URL/rest/v1/configs?select=key&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          
+          if [ "$response" -ge 200 ] && [ "$response" -lt 300 ]; then
+            echo "Successfully pinged Supabase (HTTP $response)"
+          else
+            echo "Failed to ping Supabase (HTTP $response)"
+            exit 1
+          fi
