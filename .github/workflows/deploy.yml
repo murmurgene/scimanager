@@ -23,23 +23,12 @@ jobs:
           import os, json
           url = os.environ.get('SUPABASE_URL', '').strip().strip('\"').strip(\"'\")
           key = os.environ.get('SUPABASE_ANON_KEY', '').strip().strip('\"').strip(\"'\")
-          
-          # Default fallback credentials for Pogok High School if secrets are not set in repo settings
-          POGOK_URL = 'https://pkjautwtgmmdtgawvmhh.supabase.co'
-          POGOK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBramF1dHd0Z21tZHRnYXd2bWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1MDI3NzEsImV4cCI6MjEwMDA3ODc3MX0.O3K6vsVcFtV0Qn7yAj62ykC_SHPTBViFXjDEDNcQDEg'
-
-          if not url:
-              url = POGOK_URL
-          if not key:
-              key = POGOK_KEY
-
-          with open('js/supabaseClient.template.js', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = content.replace('\"%%SUPABASE_URL%%\"', json.dumps(url))
-          content = content.replace('\"%%SUPABASE_ANON_KEY%%\"', json.dumps(key))
-          with open('js/supabaseClient.js', 'w', encoding='utf-8') as f:
-              f.write(content)
-          print('✅ Supabase config successfully injected.')
+          if url and key and os.path.exists('js/supabaseClient.template.js'):
+              with open('js/supabaseClient.template.js', 'r', encoding='utf-8') as f: content = f.read()
+              content = content.replace('\"%%SUPABASE_URL%%\"', json.dumps(url))
+              content = content.replace('\"%%SUPABASE_ANON_KEY%%\"', json.dumps(key))
+              with open('js/supabaseClient.js', 'w', encoding='utf-8') as f: f.write(content)
+              print('✅ Supabase config successfully injected from Secrets')
           "
 
       - name: Prepare Deployment Folder 📦
@@ -48,11 +37,25 @@ jobs:
           rsync -av --progress --exclude='.github' --exclude='supabase' --exclude='deploy_dist' . deploy_dist/
           rm -f deploy_dist/.gitignore
 
-      - name: Deploy 🚀
+      - name: Deploy to ggomcode (gh-pages) 🚀
+        if: github.repository == 'ggomcode/ggomsci'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: gh-pages
+          folder: deploy_dist
+          clean: true
+          single-commit: true
+          clean-exclude: |
+            .github
+
+      - name: Deploy to pogoksci.github.io (main) 🚀
+        if: github.repository == 'pogoksci/scimanager'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.DEPLOY_TOKEN }}
+          repository-name: pogoksci/pogoksci.github.io
+          branch: main
           folder: deploy_dist
           clean: true
           single-commit: true
