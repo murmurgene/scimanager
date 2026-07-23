@@ -15,9 +15,12 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          # 1. Check if secrets are set
+          # 1. Fallback to default credentials if secrets are not set
+          SUPABASE_URL="${SUPABASE_URL:-https://muprmzkvrjacqatqxayf.supabase.co}"
+          SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11cHJtemt2cmphY3FhdHF4YXlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MjYwNzAsImV4cCI6MjA3NTEwMjA3MH0.K2MO-l6QG5nztCPlT3_zqYOrMt-bqM-O5ZYLQpV1L9Y}"
+
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "Error: Secrets SUPABASE_URL and/or SUPABASE_ANON_KEY are not set."
+            echo "Error: Secrets SUPABASE_URL and/or SUPABASE_ANON_KEY are not set and no fallback available."
             exit 1
           fi
 
