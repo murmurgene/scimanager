@@ -5,6 +5,8 @@
   globalThis.App = globalThis.App || {};
 
   let stream = null;
+  let videoDevices = [];
+  let currentDeviceIndex = -1;
 
   // ------------------------------------------------------------
   // 📸 1️⃣ startCamera — 카메라 실행 (forms.js나 cabinet.js에서 호출 가능)
@@ -67,7 +69,13 @@
   function resizeBase64(base64, size) {
     return new Promise((resolve, reject) => {
       const img = new Image();
+      const timeout = setTimeout(() => {
+        console.warn("⚠️ resizeBase64 timed out, returning original image");
+        resolve(base64);
+      }, 1000);
+
       img.onload = () => {
+        clearTimeout(timeout);
         const canvas = document.createElement("canvas");
         const scale = size / Math.max(img.width, img.height);
         canvas.width = img.width * scale;
@@ -76,9 +84,31 @@
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         resolve(canvas.toDataURL("image/jpeg", 0.8));
       };
-      img.onerror = reject;
+      img.onerror = (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      };
       img.src = base64;
     });
+  }
+
+  function captureFrame(video, canvas, maxDim = 1024) {
+    if (!video || !canvas) return null;
+    const track = video.srcObject && video.srcObject.getVideoTracks && video.srcObject.getVideoTracks()[0];
+    const settings = track && track.getSettings ? track.getSettings() : null;
+    let w = video.videoWidth || (settings && settings.width) || video.width || 640;
+    let h = video.videoHeight || (settings && settings.height) || video.height || 480;
+
+    if (w > maxDim || h > maxDim) {
+      const scale = maxDim / Math.max(w, h);
+      w = Math.round(w * scale);
+      h = Math.round(h * scale);
+    }
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.85);
   }
 
   // ------------------------------------------------------------
@@ -86,12 +116,12 @@
   // ------------------------------------------------------------
   async function processAndStorePhoto(base64Data) {
     try {
+      const resized1024 = await resizeBase64(base64Data, 1024);
       const resized320 = await resizeBase64(base64Data, 320);
-      const resized160 = await resizeBase64(base64Data, 160);
-      App.State.set("photo_320_base64", resized320);
-      App.State.set("photo_160_base64", resized160);
-      console.log("📷 Base64 저장 완료:");
-      return { base64_320: resized320, base64_160: resized160 };
+      App.State.set("photo_320_base64", resized1024); // Store 1024px in the 320 slot for higher quality
+      App.State.set("photo_160_base64", resized320);  // Store 320px in the 160 slot
+      console.log("📷 High Quality Base64 저장 완료 (1024px & 320px):");
+      return { base64_320: resized1024, base64_160: resized320 };
     } catch (err) {
       console.error("📸 사진 처리 중 오류:", err);
       throw err;
@@ -111,12 +141,8 @@
     if (!modal || !video || !canvas || !captureBtn || !cancelBtn) return;
 
     captureBtn.onclick = async () => {
-      const ctx = canvas.getContext("2d");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const base64 = canvas.toDataURL("image/jpeg");
+      const base64 = captureFrame(video, canvas);
+      if (!base64) return;
       stopCameraStream();
       modal.style.display = "none";
 
@@ -131,6 +157,38 @@
     };
   }
 
+  async function initDevices() {
+    // No-op to disable unused list
+  }
+
+  function hasMultipleCameras() {
+    return false; // Force false to hide switch buttons since user wants direct high-res
+  }
+
+  async function getNextStream(currentStream, onDeviceChanged) {
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => track.stop());
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          // Request high resolution constraints to trigger the high quality rear camera
+          width: { ideal: 3840 },
+          height: { ideal: 2160 }
+        }
+      });
+      return { stream, deviceId: null };
+    } catch (err) {
+      console.warn("📸 고해상도 카메라 접근 실패, 기본 후면 카메라 시도:", err);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+      return { stream, deviceId: null };
+    }
+  }
+
   // ------------------------------------------------------------
   // 🌍 7️⃣ 전역 등록 (forms.js/cabinet.js 모두에서 사용 가능)
   // ------------------------------------------------------------
@@ -139,6 +197,9 @@
     setupModalListeners: setupModalListeners,
     updatePreview: updatePreview,
     processImage: processAndStorePhoto,
-    resizeBase64: resizeBase64
+    resizeBase64: resizeBase64,
+    getNextStream: getNextStream,
+    hasMultipleCameras: hasMultipleCameras,
+    captureFrame: captureFrame
   };
 })();

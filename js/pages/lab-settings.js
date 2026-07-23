@@ -38,6 +38,10 @@
                     tabContents.forEach(content => {
                         content.id === targetId ? content.classList.add('active') : content.classList.remove('active');
                     });
+
+                    if (targetId === 'chatbot-settings') {
+                        loadUnansweredQueries();
+                    }
                 });
             });
             updateTabStatus();
@@ -73,8 +77,48 @@
         // ==========================================
         const btnSaveSchoolInfo = document.getElementById('btn-save-school-info');
 
+        function toggleChatbotFields() {
+            const providerSelect = document.getElementById('chatbot-provider-select');
+            const keyLabel = document.getElementById('chatbot-key-label');
+            const urlGroup = document.getElementById('chatbot-api-url-group');
+            const modelGroup = document.getElementById('chatbot-model-group');
+
+            if (!providerSelect) return;
+            const val = providerSelect.value;
+
+            if (val === 'gemini') {
+                if (keyLabel) keyLabel.textContent = 'Gemini API Key';
+                if (urlGroup) urlGroup.style.display = 'none';
+                if (modelGroup) modelGroup.style.display = 'none';
+            } else if (val === 'openai') {
+                if (keyLabel) keyLabel.textContent = 'OpenAI API Key';
+                if (urlGroup) urlGroup.style.display = 'none';
+                if (modelGroup) modelGroup.style.display = 'block';
+            } else if (val === 'custom') {
+                if (keyLabel) keyLabel.textContent = 'API Key (또는 토큰)';
+                if (urlGroup) urlGroup.style.display = 'block';
+                if (modelGroup) modelGroup.style.display = 'block';
+            }
+        }
+
         // Load School Info
         async function loadSchoolInfo() {
+            // Load Chatbot settings
+            const providerSelect = document.getElementById('chatbot-provider-select');
+            const apiKeyInput = document.getElementById('chatbot-api-key-input');
+            const apiUrlInput = document.getElementById('chatbot-api-url-input');
+            const modelInput = document.getElementById('chatbot-model-input');
+
+            if (providerSelect) {
+                providerSelect.value = localStorage.getItem('chatbot_provider') || 'gemini';
+                providerSelect.onchange = toggleChatbotFields;
+            }
+            if (apiKeyInput) apiKeyInput.value = localStorage.getItem('chatbot_api_key') || '';
+            if (apiUrlInput) apiUrlInput.value = localStorage.getItem('chatbot_api_url') || '';
+            if (modelInput) modelInput.value = localStorage.getItem('chatbot_model') || '';
+
+            toggleChatbotFields();
+
             const { data, error } = await supabase
                 .from('global_settings')
                 .select('key, value');
@@ -137,6 +181,124 @@
                     alert('학교 정보가 저장되었습니다.');
                 }
             });
+        }
+
+        // Save Chatbot Settings (Multi-Provider Support)
+        const btnSaveChatbotSettings = document.getElementById('btn-save-chatbot-settings');
+        if (btnSaveChatbotSettings) {
+            btnSaveChatbotSettings.addEventListener('click', () => {
+                const providerSelect = document.getElementById('chatbot-provider-select');
+                const apiKeyInput = document.getElementById('chatbot-api-key-input');
+                const apiUrlInput = document.getElementById('chatbot-api-url-input');
+                const modelInput = document.getElementById('chatbot-model-input');
+
+                const provider = providerSelect ? providerSelect.value : 'gemini';
+                const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+                const apiUrl = apiUrlInput ? apiUrlInput.value.trim() : '';
+                const model = modelInput ? modelInput.value.trim() : '';
+
+                if (apiKey) {
+                    localStorage.setItem('chatbot_provider', provider);
+                    localStorage.setItem('chatbot_api_key', apiKey);
+                    localStorage.setItem('chatbot_api_url', apiUrl);
+                    localStorage.setItem('chatbot_model', model);
+
+                    if (globalThis.App.Chatbot) {
+                        globalThis.App.Chatbot.provider = provider;
+                        globalThis.App.Chatbot.apiKey = apiKey;
+                        globalThis.App.Chatbot.apiUrl = apiUrl;
+                        globalThis.App.Chatbot.model = model;
+                        globalThis.App.Chatbot.updateStatus();
+                    }
+                    alert('AI 비서 설정이 저장되었습니다.');
+                } else {
+                    localStorage.removeItem('chatbot_provider');
+                    localStorage.removeItem('chatbot_api_key');
+                    localStorage.removeItem('chatbot_api_url');
+                    localStorage.removeItem('chatbot_model');
+
+                    if (globalThis.App.Chatbot) {
+                        globalThis.App.Chatbot.provider = 'gemini';
+                        globalThis.App.Chatbot.apiKey = null;
+                        globalThis.App.Chatbot.apiUrl = '';
+                        globalThis.App.Chatbot.model = '';
+                        globalThis.App.Chatbot.updateStatus();
+                    }
+                    alert('API 설정이 삭제되었습니다. DB 검색 모드로 복원됩니다.');
+                }
+            });
+        }
+
+        // Load Unanswered Queries (AI Chatbot)
+        async function loadUnansweredQueries() {
+            const container = document.getElementById('unanswered-list-container');
+            if (!container) return;
+
+            const { data, error } = await supabase
+                .from('chatbot_unanswered')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error("Failed to load unanswered queries:", error);
+                container.innerHTML = `<p style="padding: 15px; text-align: center; color: #d9534f; font-size: 13px;">불러오기 실패: ${error.message}</p>`;
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                container.innerHTML = `<p style="padding: 15px; text-align: center; color: #777; font-size: 13px;">등록된 미답변 질문이나 요청이 없습니다. 깨끗합니다!</p>`;
+                return;
+            }
+
+            let html = `<table style="width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #dee2e6; background: #f8f9fa; font-weight: bold; color: #495057;">
+                        <th style="padding: 8px 10px; width: 110px;">등록 시간</th>
+                        <th style="padding: 8px 10px;">질문 내용</th>
+                        <th style="padding: 8px 10px; width: 60px; text-align: center;">관리</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            data.forEach(item => {
+                const dateObj = new Date(item.created_at);
+                const dateStr = `${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+                
+                html += `<tr style="border-bottom: 1px solid #dee2e6; background: white;">
+                    <td style="padding: 8px 10px; color: #666; font-size: 11.5px;">${dateStr}</td>
+                    <td style="padding: 8px 10px; color: #222; word-break: break-all; line-height: 1.4;">${item.query}</td>
+                    <td style="padding: 8px 10px; text-align: center;">
+                        <button class="btn-restore" data-id="${item.id}" style="margin: 0; padding: 2px 6px; font-size: 10.5px; background: #e03131; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;">삭제</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+
+            // Bind Delete Buttons
+            container.querySelectorAll('button[data-id]').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.dataset.id;
+                    if (confirm("이 질문 기록을 삭제하시겠습니까?")) {
+                        const { error: delErr } = await supabase
+                            .from('chatbot_unanswered')
+                            .delete()
+                            .eq('id', id);
+
+                        if (delErr) {
+                            alert("삭제 실패: " + delErr.message);
+                        } else {
+                            loadUnansweredQueries();
+                        }
+                    }
+                });
+            });
+        }
+
+        const btnRefreshUnanswered = document.getElementById('btn-refresh-unanswered');
+        if (btnRefreshUnanswered) {
+            btnRefreshUnanswered.addEventListener('click', loadUnansweredQueries);
         }
 
 
@@ -1099,6 +1261,7 @@
         // --- Initialization Calls ---
         // (Moved from dispersed locations to here)
         loadSchoolInfo();
+        loadUnansweredQueries();
         loadLabRooms();
         loadSemesters(); // Load semesters -> which loads lists via change handler
 

@@ -102,7 +102,7 @@
         previewImg = document.getElementById('kit-preview-img');
         videoStream = document.getElementById('kit-camera-stream');
         canvas = document.getElementById('kit-camera-canvas');
-        photoContainer = document.querySelector('.photo-container');
+        photoContainer = document.querySelector('#kit-form-page .photo-container');
 
         fileInput = document.getElementById('kit-file-input');
         cameraInput = document.getElementById('kit-camera-input');
@@ -245,6 +245,7 @@
         document.getElementById('btn-kit-confirm').addEventListener('click', takeKitPhoto);
         document.getElementById('btn-cancel-camera').addEventListener('click', stopCamera);
         cameraInput.addEventListener('change', handleFileSelect);
+
 
         // Submit
         form.addEventListener('submit', handleSubmit);
@@ -431,9 +432,14 @@
 
             // 4. Photo
             if (kit.image_url) {
-                previewImg.src = kit.image_url;
-                previewImg.style.display = 'block';
-                photoContainer.querySelector('.placeholder-text').style.display = 'none';
+                if (previewImg) {
+                    previewImg.src = kit.image_url;
+                    previewImg.style.display = 'block';
+                }
+                if (photoContainer) {
+                    const placeholder = photoContainer.querySelector('.placeholder-text');
+                    if (placeholder) placeholder.style.display = 'none';
+                }
                 currentPhotoBase64 = null;
             }
 
@@ -546,15 +552,20 @@
     }
 
     function showPreview(src) {
-        previewImg.src = src;
-        previewImg.style.display = 'block';
-        photoContainer.querySelector('.placeholder-text').style.display = 'none';
+        if (previewImg) {
+            previewImg.src = src;
+            previewImg.style.display = 'block';
+        }
+        if (photoContainer) {
+            const placeholder = photoContainer.querySelector('.placeholder-text');
+            if (placeholder) placeholder.style.display = 'none';
+        }
     }
 
     async function startCamera() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            videoStream.srcObject = stream;
+            const res = await App.Camera.getNextStream(videoStream.srcObject);
+            videoStream.srcObject = res.stream;
             videoStream.style.display = 'block';
             videoStream.play();
 
@@ -576,6 +587,11 @@
             if (btnConfirm) {
                 btnConfirm.style.display = 'inline-flex';
                 btnConfirm.innerHTML = '<span class="material-symbols-outlined">camera</span> 촬영';
+            }
+
+            const btnSwitch = document.getElementById('btn-kit-switch');
+            if (btnSwitch) {
+                btnSwitch.style.display = App.Camera.hasMultipleCameras() ? 'inline-flex' : 'none';
             }
 
             document.getElementById('btn-cancel-camera').style.display = 'inline-flex';
@@ -602,39 +618,36 @@
 
         document.getElementById('btn-kit-file').style.display = 'inline-flex';
         document.getElementById('btn-kit-confirm').style.display = 'none';
+        document.getElementById('btn-kit-switch').style.display = 'none';
         document.getElementById('btn-cancel-camera').style.display = 'none';
 
         if (previewImg.src && previewImg.src !== window.location.href) {
             previewImg.style.display = 'block';
-        } else {
-            photoContainer.querySelector('.placeholder-text').style.display = 'block';
+        } else if (photoContainer) {
+            const placeholder = photoContainer.querySelector('.placeholder-text');
+            if (placeholder) placeholder.style.display = 'block';
         }
     }
 
     async function takeKitPhoto() {
         if (!videoStream || !canvas) return;
+        const base64 = App.Camera.captureFrame(videoStream, canvas);
+        if (!base64) return;
 
-        canvas.width = videoStream.videoWidth;
-        canvas.height = videoStream.videoHeight;
-        canvas.getContext('2d').drawImage(videoStream, 0, 0);
+        // 1. Show original preview immediately and hide videoStream to prevent side-by-side flicker
+        showPreview(base64);
+        videoStream.style.display = 'none';
 
-        const base64 = canvas.toDataURL("image/jpeg");
-
-        stopCamera();
-
-        if (App.Camera && App.Camera.processImage) {
-            try {
-                const resized = await App.Camera.processImage(base64);
-                if (resized) {
-                    currentPhotoBase64 = resized.base64_320;
-                    showPreview(resized.base64_320);
-                }
-            } catch (err) {
-                console.error(err);
-                // Fallback
-                showPreview(base64);
-                currentPhotoBase64 = base64;
+        // 2. Process resizing in background
+        try {
+            const resized = await App.Camera.processImage(base64);
+            if (resized) {
+                currentPhotoBase64 = resized.base64_320;
+                showPreview(resized.base64_320);
             }
+        } catch (err) {
+            console.error(err);
+            currentPhotoBase64 = base64;
         }
 
         // Review Mode UI Update
@@ -642,6 +655,10 @@
         if (btnCamera) {
             btnCamera.innerHTML = '<span class="material-symbols-outlined">replay</span> 다시 촬영';
         }
+
+        setTimeout(() => {
+            stopCamera();
+        }, 150);
     }
 
     // --- Submit Logic ---

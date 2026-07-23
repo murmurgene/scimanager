@@ -32,6 +32,7 @@
     export: "pages/export.html",
     safetyEdu: "pages/safety-edu.html",
     labManual: "pages/lab-manual.html",
+    emergencyManual: "pages/emergency-manual.html",
   };
 
   let currentState = null;
@@ -44,6 +45,15 @@
     }
 
     console.log(`🧭 Router → ${pageKey}`, params);
+
+    // Toggle body classes based on route to hide/show splash screen
+    if (pageKey === "main") {
+      document.body.classList.add("home-active");
+      document.body.classList.remove("loaded");
+    } else {
+      document.body.classList.remove("home-active");
+      document.body.classList.add("loaded");
+    }
 
     // 1. History Push
     if (!options.skipPush) {
@@ -70,6 +80,9 @@
         break;
       case "labManual":
         if (App?.LabManual?.init) await App.LabManual.init();
+        break;
+      case "emergencyManual":
+        if (App?.EmergencyManual?.init) await App.EmergencyManual.init();
         break;
       case "labTimetable":
         if (App?.LabTimetable?.init) await App.LabTimetable.init();
@@ -169,10 +182,10 @@
       App.Navbar.setActive(navId);
     }
 
-    window.scrollTo(0, 0);
+    globalThis.scrollTo(0, 0);
   }
 
-  window.addEventListener("popstate", (event) => {
+  globalThis.addEventListener("popstate", (event) => {
     const state = event.state;
     if (state && state.pageKey) {
       go(state.pageKey, state.params, { skipPush: true });
@@ -181,6 +194,22 @@
     }
   });
 
+  function checkDeepLink() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const route = urlParams.get('route') || urlParams.get('view');
+      const id = urlParams.get('id');
+
+      if (route && routes[route]) {
+        go(route, { id: id }, { skipPush: true });
+        return true;
+      }
+    } catch (e) {
+      console.error("Deep link parse error:", e);
+    }
+    return false;
+  }
+
   globalThis.App = globalThis.App || {};
-  globalThis.App.Router = { go, routes, getCurrentState: () => currentState };
+  globalThis.App.Router = { go, routes, checkDeepLink, getCurrentState: () => currentState };
 })();

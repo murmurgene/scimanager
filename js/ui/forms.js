@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // /js/ui/forms.js — 폼 상태/UI 관리 (App.Forms)
 // ================================================================
 (function () {
@@ -585,8 +585,6 @@
 
     const togglePhotoButtons = (isCameraOn) => {
       if (photoBtn) photoBtn.style.display = isCameraOn ? 'none' : 'inline-flex';
-      // Logic: active -> camera btn hidden (or changed?), confirm/cancel shown.
-      // tools-form: camera btn hidden.
       if (cameraBtn) cameraBtn.style.display = isCameraOn ? 'none' : 'inline-flex';
 
       if (cameraConfirmBtn) {
@@ -594,14 +592,19 @@
         cameraConfirmBtn.style.display = isCameraOn ? 'inline-flex' : 'none';
       }
       if (cameraCancelBtn) cameraCancelBtn.style.display = isCameraOn ? 'inline-flex' : 'none';
+      
+      const switchBtn = document.getElementById("camera-switch-btn");
+      if (switchBtn) {
+        switchBtn.style.display = (isCameraOn && App.Camera.hasMultipleCameras()) ? 'inline-flex' : 'none';
+      }
     };
 
 
     // Helper: Start Camera
     const startCameraFunc = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        inventoryStream = stream;
+        const res = await App.Camera.getNextStream(inventoryStream);
+        inventoryStream = res.stream;
         videoStream.srcObject = inventoryStream;
         videoStream.style.display = 'block';
         videoStream.play();
@@ -620,48 +623,52 @@
       }
     };
 
-    // Helper: Take Photo
     const takePhoto = async () => {
       if (!videoStream || !canvas) return console.error("Video or Canvas missing");
-      canvas.width = videoStream.videoWidth;
-      canvas.height = videoStream.videoHeight;
-      canvas.getContext('2d').drawImage(videoStream, 0, 0);
+      const base64 = App.Camera.captureFrame(videoStream, canvas);
+      if (!base64) return;
 
-      const base64 = canvas.toDataURL("image/jpeg");
+      // 1. Show original preview immediately and hide videoStream to prevent side-by-side flicker
+      if (previewImg) {
+        previewImg.src = base64;
+        previewImg.style.display = 'block';
+      } else {
+        // Fallback
+        const img = document.createElement('img');
+        img.id = 'preview-img';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.src = base64;
+        previewBox.insertBefore(img, previewBox.firstChild);
+      }
 
-      // Stop camera immediately to show preview
-      stopCamera();
+      const placeholder = previewBox.querySelector('.placeholder-text');
+      if (placeholder) placeholder.style.display = 'none';
 
+      videoStream.style.display = 'none';
+
+      // 2. Process resizing in background
       if (App.Camera && App.Camera.processImage) {
         try {
           const resized = await App.Camera.processImage(base64);
-          if (!resized) return;
+          if (resized) {
+            set("photo_320_base64", resized.base64_320);
+            set("photo_160_base64", resized.base64_160);
 
-          set("photo_320_base64", resized.base64_320);
-          set("photo_160_base64", resized.base64_160);
-
-          if (previewImg) {
-            previewImg.src = resized.base64_320;
-            previewImg.style.display = 'block';
-          } else {
-            // Fallback
-            const img = document.createElement('img');
-            img.id = 'preview-img';
-            img.style.width = '100%';
-            img.style.height = '100%';
-            img.style.objectFit = 'cover';
-            img.src = resized.base64_320;
-            previewBox.insertBefore(img, previewBox.firstChild);
+            const targetImg = previewImg || previewBox.querySelector('#preview-img');
+            if (targetImg) targetImg.src = resized.base64_320;
           }
-
-          const placeholder = previewBox.querySelector('.placeholder-text');
-          if (placeholder) placeholder.style.display = 'none';
-
         } catch (err) {
           console.error("Image processing failed:", err);
-          alert("사진 처리 중 오류가 발생했습니다.");
+          // Fallback to original
+          set("photo_320_base64", base64);
+          set("photo_160_base64", base64);
         }
       }
+      setTimeout(() => {
+        stopCamera();
+      }, 150);
     };
 
     // Event Listeners
@@ -719,6 +726,7 @@
         stopCamera();
       };
     }
+
 
     // ------------------------------------------------------------
     // 🗺 보관 위치 로직 (App.StorageSelector)
@@ -1081,7 +1089,7 @@
               // ------------------------------------------------------------
               console.log(`[Inventory] CAS(${casRn}) not found locally. Delegating to casimport...`);
 
-              const fnUrl = App.API?.EDGE?.CASIMPORT || `https://muprmzkvrjacqatqxayf.supabase.co/functions/v1/casimport`;
+              const fnUrl = App.API?.EDGE?.CASIMPORT || `https://pkjautwtgmmdtgawvmhh.supabase.co/functions/v1/casimport`;
               const headers = {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${App.API?.SUPABASE_ANON_KEY || supabase.supabaseKey}`
@@ -1443,12 +1451,17 @@
         cameraConfirmBtn.style.display = isCameraOn ? 'inline-flex' : 'none';
       }
       if (cameraCancelBtn) cameraCancelBtn.style.display = isCameraOn ? 'inline-flex' : 'none';
+
+      const switchBtn = document.getElementById("cabinet-camera-switch-btn");
+      if (switchBtn) {
+        switchBtn.style.display = (isCameraOn && App.Camera.hasMultipleCameras()) ? 'inline-flex' : 'none';
+      }
     };
 
     const startCabinetCamera = async () => {
       try {
-        const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        cabinetStream = newStream;
+        const res = await App.Camera.getNextStream(cabinetStream);
+        cabinetStream = res.stream;
         videoStream.srcObject = cabinetStream;
         videoStream.style.display = 'block';
         videoStream.play();
@@ -1471,14 +1484,28 @@
 
     const takeCabinetPhoto = async () => {
       if (!videoStream || !canvas) return;
-      canvas.width = videoStream.videoWidth;
-      canvas.height = videoStream.videoHeight;
-      canvas.getContext('2d').drawImage(videoStream, 0, 0);
+      const base64 = App.Camera.captureFrame(videoStream, canvas);
+      if (!base64) return;
 
-      const base64 = canvas.toDataURL("image/jpeg");
+      // 1. Show original preview immediately and hide videoStream to prevent side-by-side flicker
+      const placeholder = previewBox.querySelector('.placeholder-text');
+      if (placeholder) placeholder.style.display = 'none';
 
-      stopCabinetCamera();
+      let img = previewBox.querySelector('img');
+      if (!img) {
+        img = document.createElement('img');
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.objectFit = "cover";
+        previewBox.insertBefore(img, previewBox.firstChild);
+      }
+      img.src = base64;
+      img.style.display = 'block';
+      img.style.objectFit = 'cover';
 
+      videoStream.style.display = 'none';
+
+      // 2. Process resizing in background
       if (App.Camera && App.Camera.processImage) {
         try {
           const resized = await App.Camera.processImage(base64);
@@ -1486,23 +1513,19 @@
             set("photo_320_base64", resized.base64_320);
             set("photo_160_base64", resized.base64_160);
 
-            const placeholder = previewBox.querySelector('.placeholder-text');
-            if (placeholder) placeholder.style.display = 'none';
-
-            let img = previewBox.querySelector('img');
-            if (!img) {
-              img = document.createElement('img');
-              img.style.width = "100%";
-              img.style.height = "100%";
-              img.style.objectFit = "cover";
-              previewBox.insertBefore(img, previewBox.firstChild);
-            }
-            img.src = resized.base64_320;
-            img.style.display = 'block';
-            img.style.objectFit = 'cover';
+            const targetImg = previewBox.querySelector('img');
+            if (targetImg) targetImg.src = resized.base64_320;
           }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error(e);
+          // Fallback to original
+          set("photo_320_base64", base64);
+          set("photo_160_base64", base64);
+        }
       }
+      setTimeout(() => {
+        stopCabinetCamera();
+      }, 150);
     };
 
     // Listeners
@@ -1534,6 +1557,7 @@
     if (cameraCancelBtn) {
       cameraCancelBtn.onclick = stopCabinetCamera;
     }
+
 
     const handleFile = (file) => {
       if (!file) return;
@@ -1851,13 +1875,18 @@
         cameraConfirmBtn.style.display = isCameraOn ? 'inline-flex' : 'none';
       }
       if (cameraCancelBtn) cameraCancelBtn.style.display = isCameraOn ? 'inline-flex' : 'none';
+
+      const switchBtn = document.getElementById("equipment-camera-switch-btn");
+      if (switchBtn) {
+        switchBtn.style.display = (isCameraOn && App.Camera.hasMultipleCameras()) ? 'inline-flex' : 'none';
+      }
     };
 
     const startCameraFunc = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        equipmentStream = stream;
-        videoStream.srcObject = stream;
+        const res = await App.Camera.getNextStream(equipmentStream);
+        equipmentStream = res.stream;
+        videoStream.srcObject = equipmentStream;
         videoStream.style.display = "block";
         videoStream.play();
 
@@ -1878,13 +1907,28 @@
 
     const takePhoto = async () => {
       if (!videoStream || !canvas) return;
-      canvas.width = videoStream.videoWidth;
-      canvas.height = videoStream.videoHeight;
-      canvas.getContext("2d").drawImage(videoStream, 0, 0);
-      const base64 = canvas.toDataURL("image/jpeg");
+      const base64 = App.Camera.captureFrame(videoStream, canvas);
+      if (!base64) return;
 
-      stopCamera();
+      // 1. Show original preview immediately and hide videoStream to prevent side-by-side flicker
+      let img = previewBox.querySelector('img');
+      if (!img) {
+        img = document.createElement("img");
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.objectFit = "cover";
+        previewBox.insertBefore(img, previewBox.firstChild);
+      }
+      img.src = base64;
+      img.style.display = 'block';
+      img.style.objectFit = 'cover';
 
+      const placeholder = previewBox.querySelector('.placeholder-text');
+      if (placeholder) placeholder.style.display = 'none';
+
+      videoStream.style.display = 'none';
+
+      // 2. Process resizing in background
       if (App.Camera && App.Camera.processImage) {
         try {
           const resized = await App.Camera.processImage(base64);
@@ -1892,23 +1936,19 @@
             set("photo_320_base64", resized.base64_320);
             set("photo_160_base64", resized.base64_160);
 
-            let img = previewBox.querySelector('img');
-            if (!img) {
-              img = document.createElement("img");
-              img.style.width = "100%";
-              img.style.height = "100%";
-              img.style.objectFit = "cover";
-              previewBox.insertBefore(img, previewBox.firstChild);
-            }
-            img.src = resized.base64_320;
-            img.style.display = 'block';
-            img.style.objectFit = 'cover';
-
-            const placeholder = previewBox.querySelector('.placeholder-text');
-            if (placeholder) placeholder.style.display = 'none';
+            const targetImg = previewBox.querySelector('img');
+            if (targetImg) targetImg.src = resized.base64_320;
           }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error(e);
+          // Fallback to original
+          set("photo_320_base64", base64);
+          set("photo_160_base64", base64);
+        }
       }
+      setTimeout(() => {
+        stopCamera();
+      }, 150);
     };
 
     if (cameraBtn) {
@@ -1919,6 +1959,7 @@
 
     if (cameraConfirmBtn) cameraConfirmBtn.onclick = takePhoto;
     if (cameraCancelBtn) cameraCancelBtn.onclick = stopCamera;
+
 
     if (photoBtn) photoBtn.onclick = () => { if (isCameraActive) stopCamera(); photoInput.click(); };
 

@@ -78,7 +78,7 @@
         previewImg = document.getElementById('tools-preview-img');
         videoStream = document.getElementById('tools-camera-stream');
         canvas = document.getElementById('tools-camera-canvas');
-        photoContainer = document.querySelector('.photo-container');
+        photoContainer = document.querySelector('#tools-form-page .photo-container');
     }
 
     function resetForm() {
@@ -151,6 +151,7 @@
         document.getElementById('tools-camera-confirm-btn').addEventListener('click', takePhoto);
         document.getElementById('tools-camera-cancel-btn').addEventListener('click', stopCamera);
         document.getElementById('tools-camera-input').addEventListener('change', handleFileSelect);
+
 
         // Submit
         form.addEventListener('submit', handleSubmit);
@@ -281,21 +282,39 @@
     }
 
     // --- Photo Logic ---
+    function dataURLtoBlob(dataurl) {
+        var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
+            bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+        while(n--){
+            u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new Blob([u8arr], {type:mime});
+    }
+
     function handleFileSelect(e) {
         const file = e.target.files[0];
         if (!file) return;
-        photoFiles.file = file;
-        photoFiles.blob = null;
 
         const reader = new FileReader();
-        reader.onload = (ev) => {
-            previewImg.src = ev.target.result;
-            previewImg.style.display = 'block';
-            if (photoContainer) {
-                const ph = photoContainer.querySelector('.placeholder-text');
-                if (ph) ph.style.display = 'none';
+        reader.onload = async (ev) => {
+            try {
+                const resized = await App.Camera.processImage(ev.target.result);
+                const blob = App.Utils.base64ToBlob(resized.base64_320);
+                
+                photoFiles.blob = blob;
+                photoFiles.file = null;
+
+                previewImg.src = resized.base64_320;
+                previewImg.style.display = 'block';
+                if (photoContainer) {
+                    const ph = photoContainer.querySelector('.placeholder-text');
+                    if (ph) ph.style.display = 'none';
+                }
+            } catch (err) {
+                console.error("Failed to process selected file:", err);
+                alert("이미지 처리 중 오류가 발생했습니다.");
             }
-        }
+        };
         reader.readAsDataURL(file);
     }
 
@@ -308,17 +327,8 @@
         }
 
         try {
-            // Priority 1: Try Environment Camera (Mobile Rear)
-            try {
-                streamObj = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
-                });
-            } catch (mobileErr) {
-                // Priority 2: Fallback to any available video device (Desktop/Laptop)
-                streamObj = await navigator.mediaDevices.getUserMedia({
-                    video: true
-                });
-            }
+            const res = await App.Camera.getNextStream(streamObj);
+            streamObj = res.stream;
         } catch (err) {
             console.warn("Camera init failed:", err);
 
@@ -367,26 +377,44 @@
             previewImg.style.display = 'block';
         }
     }
-
-    function takePhoto() {
+    async function takePhoto() {
         if (!streamObj) return;
-        canvas.width = videoStream.videoWidth;
-        canvas.height = videoStream.videoHeight;
-        canvas.getContext('2d').drawImage(videoStream, 0, 0);
+        const base64 = App.Camera.captureFrame(videoStream, canvas);
+        if (!base64) return;
 
-        canvas.toBlob(blob => {
+        // 1. Show original preview immediately and hide videoStream to prevent side-by-side flicker
+        previewImg.src = base64;
+        previewImg.style.display = 'block';
+        if (photoContainer) {
+            const ph = photoContainer.querySelector('.placeholder-text');
+            if (ph) ph.style.display = 'none';
+        }
+        videoStream.style.display = 'none';
+
+        // 2. Process resizing in background
+        try {
+            const resized = await App.Camera.processImage(base64);
+            const blob = App.Utils.base64ToBlob(resized.base64_320);
+            
             photoFiles.blob = blob;
             photoFiles.file = null;
 
-            const url = URL.createObjectURL(blob);
-            previewImg.src = url;
-            previewImg.style.display = 'block';
-            if (photoContainer) {
-                const ph = photoContainer.querySelector('.placeholder-text');
-                if (ph) ph.style.display = 'none';
+            previewImg.src = resized.base64_320;
+        } catch (err) {
+            console.error("Failed to process captured photo:", err);
+            // Fallback to original
+            try {
+                const blob = App.Utils.base64ToBlob(base64);
+                photoFiles.blob = blob;
+                photoFiles.file = null;
+            } catch (blobErr) {
+                console.error(blobErr);
             }
+        }
+
+        setTimeout(() => {
             stopCamera();
-        }, 'image/jpeg');
+        }, 150);
     }
 
     function togglePhotoButtons(isCameraOn) {
@@ -394,6 +422,11 @@
         document.getElementById('tools-camera-btn').style.display = isCameraOn ? 'none' : 'inline-flex';
         document.getElementById('tools-camera-confirm-btn').style.display = isCameraOn ? 'inline-flex' : 'none';
         document.getElementById('tools-camera-cancel-btn').style.display = isCameraOn ? 'inline-flex' : 'none';
+
+        const switchBtn = document.getElementById('tools-camera-switch-btn');
+        if (switchBtn) {
+            switchBtn.style.display = (isCameraOn && App.Camera.hasMultipleCameras()) ? 'inline-flex' : 'none';
+        }
     }
 
     function resetPhotoUI() {
@@ -514,7 +547,7 @@
                 const fileName = `tool_${Date.now()}.${fileExt}`;
                 const { error: uploadError } = await supabase.storage
                     .from('tools-photo')
-                    .upload(fileName, fileToUpload);
+                    .upload(fileName, fileToUpload, { contentType: 'image/jpeg', upsert: true });
 
                 if (uploadError) throw uploadError;
 

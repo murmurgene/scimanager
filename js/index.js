@@ -18,7 +18,7 @@
     "./js/core/utils.js",
     "./js/core/state.js",
     "./js/core/api.js",    // 🔄 복구
-    "./js/core/camera.js", // 🔄 복구
+    "./js/core/camera.js?v=4", // 🔄 복구
     "./js/core/fab.js",
     "./js/ui/auth.js",     // ✅ 인증 모듈 추가
   ];
@@ -26,7 +26,7 @@
     "./js/ui/cabinet.js",
     "./js/ui/equipment-cabinet.js",
     "./js/ui/storage-selector.js",
-    "./js/ui/forms.js",
+    "./js/ui/forms.js?v=8",
     "./js/ui/inventory.js",
     "./js/ui/inventory-detail.js",
     "./js/ui/navbar.js",
@@ -35,8 +35,8 @@
     "./js/ui/waste.js",
     "./js/pages/kits.js",
     "./js/pages/teaching-tools.js",
-    "./js/pages/tools-form.js",
-    "./js/pages/kit-form.js",
+    "./js/pages/tools-form.js?v=8",
+    "./js/pages/kit-form.js?v=8",
     "./js/ui/export-page.js",
     "./js/pages/lab-settings.js",
     "./data/subject-config.js", // ✅ 과목 설정 데이터
@@ -49,15 +49,17 @@
     "./js/pages/lab-usage-view.js",
     "./js/pages/lunch-lab-reserve.js",
     "./js/pages/lunch-lab-view.js",
-    "./js/pages/safety-edu.js?v=20251227",
+    "./js/pages/safety-edu.js?v=20260723_4",
     "./js/pages/lab-manual.js?v=20251227",
+    "./js/pages/emergency-manual.js?v=20251227",
+    "./js/ui/chatbot.js?v=20260723_15",
   ];
   const componentModules = [
     "./js/components/sort-dropdown.js", // 🔹 여기 추가됨
     "./js/utils/kit-sync.js", // ✅ 키트 동기화 유틸
   ];
 
-  const routerModules = ["./js/router/router.js"];
+  const routerModules = ["./js/router/router.js?v=20260723_4"];
 
   // ------------------------------------------------------------
   // 2️⃣ 스크립트 로드 유틸리티
@@ -180,6 +182,16 @@
         }
     };
     checkApiExp();
+
+    // 🤖 챗봇 초기화
+    if (App.Chatbot && typeof App.Chatbot.init === "function") {
+      App.Chatbot.init();
+    }
+
+    // 🧭 Deep Link Check (새 창 오픈 시 딥링크 처리)
+    if (App.Router && typeof App.Router.checkDeepLink === "function") {
+      App.Router.checkDeepLink();
+    }
 
     console.log("✅ 초기화 완료 — App 실행 중");
 

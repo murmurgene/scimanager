@@ -14,28 +14,43 @@ jobs:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
 
-      - name: Check & Inject Supabase Config (Python) 🐍
+      - name: Inject Supabase Config (Python) 🐍
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           python3 -c "
-          import os
-          url = os.environ.get('SUPABASE_URL') or 'https://muprmzkvrjacqatqxayf.supabase.co'
-          key = os.environ.get('SUPABASE_ANON_KEY') or 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11cHJtemt2cmphY3FhdHF4YXlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MjYwNzAsImV4cCI6MjA3NTEwMjA3MH0.K2MO-l6QG5nztCPlT3_zqYOrMt-bqM-O5ZYLQpV1L9Y'
-          with open('js/supabaseClient.template.js', 'r', encoding='utf-8') as f: content = f.read()
-          content = content.replace('%%SUPABASE_URL%%', url)
-          content = content.replace('%%SUPABASE_ANON_KEY%%', key)
-          with open('js/supabaseClient.js', 'w', encoding='utf-8') as f: f.write(content)
-          print('Successfully injected Supabase credentials.')
+          import os, json
+          url = os.environ.get('SUPABASE_URL', '').strip().strip('\"').strip(\"'\") or 'https://muprmzkvrjacqatqxayf.supabase.co'
+          key = os.environ.get('SUPABASE_ANON_KEY', '').strip().strip('\"').strip(\"'\") or 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11cHJtemt2cmphY3FhdHF4YXlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MjYwNzAsImV4cCI6MjA3NTEwMjA3MH0.K2MO-l6QG5nztCPlT3_zqYOrMt-bqM-O5ZYLQpV1L9Y'
+          if os.path.exists('js/supabaseClient.template.js'):
+              with open('js/supabaseClient.template.js', 'r', encoding='utf-8') as f: content = f.read()
+              content = content.replace('\"%%SUPABASE_URL%%\"', json.dumps(url))
+              content = content.replace('\"%%SUPABASE_ANON_KEY%%\"', json.dumps(key))
+              with open('js/supabaseClient.js', 'w', encoding='utf-8') as f: f.write(content)
+              print('✅ Supabase config successfully injected')
           "
 
       - name: Prepare Deployment Folder 📦
         run: |
           mkdir deploy_dist
           rsync -av --progress --exclude='.github' --exclude='supabase' --exclude='deploy_dist' . deploy_dist/
+          rm -f deploy_dist/.gitignore
 
-      - name: Deploy 🚀
+      - name: Deploy to ggomcode (gh-pages) 🚀
+        if: github.repository == 'ggomcode/ggomsci'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          folder: deploy_dist
+          clean: true
+          single-commit: true
+          clean-exclude: |
+            .github
+
+      - name: Deploy to pogoksci.github.io (main) 🚀
+        if: github.repository == 'pogoksci/scimanager'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           token: ${{ secrets.DEPLOY_TOKEN }}

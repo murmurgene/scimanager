@@ -245,6 +245,7 @@
       .select(`
         id, bottle_identifier, current_amount, initial_amount, unit, classification, created_at, photo_url_320, photo_url_160,
         concentration_value, concentration_unit, status, edited_name_kor,
+        school_hazardous_chemical, toxic_substance,
         door_vertical, door_horizontal, internal_shelf_level, storage_column,
         Substance ( substance_name, cas_rn, molecular_formula, molecular_mass, chem_name_kor, chem_name_kor_mod, substance_name_mod, molecular_formula_mod, Synonyms ( synonyms_name, synonyms_eng ), ReplacedRns!ReplacedRns_substance_id_fkey ( replaced_rn ) ),
         Cabinet ( cabinet_name, door_horizontal_count, area_id:lab_rooms!fk_cabinet_lab_rooms ( id, room_name ) )
@@ -389,6 +390,8 @@
         replaced_rn: replacedRns,
         is_low_stock: row.is_low_stock,
         initial_amount: row.initial_amount, // ✅ 수정 시 초기 구입량 표시를 위해 추가
+        school_hazardous_chemical: row.school_hazardous_chemical,
+        toxic_substance: row.toxic_substance,
       };
     });
 
@@ -605,7 +608,7 @@
 
   async function deleteInventory(id) {
     const supabase = getSupabase();
-    const fnUrl = App.API?.EDGE?.CASIMPORT || `https://muprmzkvrjacqatqxayf.supabase.co/functions/v1/casimport`;
+    const fnUrl = App.API?.EDGE?.CASIMPORT || `https://pkjautwtgmmdtgawvmhh.supabase.co/functions/v1/casimport`;
 
     try {
       const response = await fetch(`${fnUrl}?type=inventory&id=${id}`, {
@@ -637,20 +640,90 @@
       return;
     }
 
-    // 1. 새 창 열기
+    const modalHtml = `
+      <div id="print-report-modal" class="modal-overlay" style="z-index: 9999; display: flex;">
+        <div class="modal-content" style="max-width: 400px; width: 90%;">
+          <h3>약품 목록 출력 설정</h3>
+          <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
+            출력할 약품 목록의 정렬 및 형태를 선택하세요.
+          </p>
+          <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px;">
+             <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                <input type="radio" name="print-sort-option" value="name_kor" checked> 1. 전체 가나다순
+             </label>
+             <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                <input type="radio" name="print-sort-option" value="classification_group"> 2. 분류별 가나다순 (분류 변경 시 페이지 나눔)
+             </label>
+             <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                <input type="radio" name="print-sort-option" value="id_asc"> 3. 등록번호(No)순
+             </label>
+             <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                <input type="radio" name="print-sort-option" value="cas_rn"> 4. 전체 CAS순
+             </label>
+          </div>
+          <div style="display: flex; gap: 10px; justify-content: flex-end;">
+             <button id="btn-cancel-print-report" class="btn-cancel">취소</button>
+             <button id="btn-confirm-print-report" class="btn-primary">출력하기</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const existing = document.getElementById("print-report-modal");
+    if (existing) existing.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById("print-report-modal");
+    document.getElementById("btn-cancel-print-report").onclick = () => modal.remove();
+    document.getElementById("btn-confirm-print-report").onclick = () => {
+      const selectedOption = document.querySelector('input[name="print-sort-option"]:checked').value;
+      modal.remove();
+      printReportWithOptions(selectedOption);
+    };
+  }
+
+  function printReportWithOptions(sortOption) {
+    if (!currentFilteredData || currentFilteredData.length === 0) {
+      alert("출력할 데이터가 없습니다.");
+      return;
+    }
+
+    // Clone the array to avoid modifying currentFilteredData sorting in place
+    const items = [...currentFilteredData];
+
+    // 1. Sort the items
+    if (sortOption === "name_kor") {
+      items.sort((a, b) => {
+        const nameA = a.name_kor || "";
+        const nameB = b.name_kor || "";
+        return nameA.localeCompare(nameB, 'ko');
+      });
+    } else if (sortOption === "id_asc") {
+      items.sort((a, b) => (a.id || 0) - (b.id || 0));
+    } else if (sortOption === "cas_rn") {
+      items.sort((a, b) => {
+        const casA = a.cas_rn || "";
+        const casB = b.cas_rn || "";
+        if (casA === "-" || !casA) return 1;
+        if (casB === "-" || !casB) return -1;
+        return casA.localeCompare(casB);
+      });
+    }
+
+    // 2. Open print window
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       alert("팝업 차단을 해제해주세요.");
       return;
     }
 
-    // 2. HTML 작성
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-    let rowsHtml = "";
-    currentFilteredData.forEach((item, index) => {
-      // null 체크 및 안전한 문자열 변환
+    let bodyHtml = "";
+
+    const renderRowHtml = (item) => {
       const nameKor = item.name_kor || "-";
       const nameEng = item.name_eng || "";
       const casRn = item.cas_rn || "-";
@@ -661,7 +734,7 @@
       const classification = item.classification || "-";
       const concentration = item.concentration_text || "-";
 
-      rowsHtml += `
+      return `
         <tr>
             <td style="text-align: center;">${item.id}</td>
             <td>
@@ -678,8 +751,76 @@
             <td style="text-align: center;">${amount}</td>
             <td style="text-align: center;">${classification}</td>
         </tr>
+      `;
+    };
+
+    if (sortOption === "classification_group") {
+      // Group items by classification
+      const groups = {};
+      items.forEach(item => {
+        const cls = item.classification || "미지정";
+        if (!groups[cls]) groups[cls] = [];
+        groups[cls].push(item);
+      });
+
+      // Sort group keys alphabetically
+      const sortedKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'ko'));
+
+      sortedKeys.forEach((cls, idx) => {
+        // Sort items inside this group alphabetically by name
+        groups[cls].sort((a, b) => {
+          const nameA = a.name_kor || "";
+          const nameB = b.name_kor || "";
+          return nameA.localeCompare(nameB, 'ko');
+        });
+
+        const pageBreakClass = idx > 0 ? 'page-break' : '';
+        bodyHtml += `
+          <div class="${pageBreakClass}" style="margin-bottom: 30px;">
+              <h2 class="class-title" style="margin-top: 15px; margin-bottom: 10px; font-size: 16px; border-bottom: 2px solid #333; padding-bottom: 4px; font-weight: bold;">분류: ${cls}</h2>
+              <table>
+                  <thead>
+                      <tr>
+                          <th width="5%">No.</th>
+                          <th width="18%">약품명</th>
+                          <th width="10%">농도</th>
+                          <th width="15%">CAS No.</th>
+                          <th width="13%">화학식</th>
+                          <th width="19%" class="col-location">위치</th>
+                          <th width="10%">보유량</th>
+                          <th width="10%">분류</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      ${groups[cls].map(item => renderRowHtml(item)).join('')}
+                  </tbody>
+              </table>
+          </div>
         `;
-    });
+      });
+    } else {
+      // Single table for non-grouped sorting options
+      const rowsHtml = items.map(item => renderRowHtml(item)).join('');
+      bodyHtml = `
+          <table>
+              <thead>
+                  <tr>
+                      <th width="5%">No.</th>
+                      <th width="18%">약품명</th>
+                      <th width="10%">농도</th>
+                      <th width="15%">CAS No.</th>
+                      <th width="13%">화학식</th>
+                      <th width="19%" class="col-location">위치</th>
+                      <th width="10%">보유량</th>
+                      <th width="10%">분류</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${rowsHtml}
+              </tbody>
+          </table>
+      `;
+    }
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -691,15 +832,17 @@
             body { font-family: "Noto Sans KR", sans-serif; padding: 20px; }
             h1 { text-align: center; margin-bottom: 10px; font-size: 24px; }
             .meta { text-align: right; margin-bottom: 20px; font-size: 14px; color: #555; }
-            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 10px; }
             th, td { border: 1px solid #ddd; padding: 8px; vertical-align: middle; }
             th { background-color: #f2f2f2; text-align: center; font-weight: bold; }
             .name-kor { font-weight: bold; font-size: 12px; }
             .name-eng { font-size: 10px; color: #666; margin-top: 2px; }
+            .page-break { page-break-before: always; }
             @media print {
                 @page { margin: 15mm; }
                 body { padding: 0; }
                 th { background-color: #eee !important; -webkit-print-color-adjust: exact; }
+                .page-break { page-break-before: always; }
             }
             /* Portrait Optimization */
             @media print and (orientation: portrait) {
@@ -713,23 +856,7 @@
         <div class="meta">
             출력일: ${dateStr} | 총 ${currentFilteredData.length}건
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th width="5%">No.</th>
-                    <th width="18%">약품명</th>
-                    <th width="10%">농도</th>
-                    <th width="15%">CAS No.</th>
-                    <th width="13%">화학식</th>
-                    <th width="19%" class="col-location">위치</th>
-                    <th width="10%">보유량</th>
-                    <th width="10%">분류</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rowsHtml}
-            </tbody>
-        </table>
+        ${bodyHtml}
         <script>
             window.onload = function() {
                 window.print();
@@ -739,7 +866,6 @@
     </html>
     `;
 
-    // 3. 쓰기 및 출력
     printWindow.document.open();
     printWindow.document.write(htmlContent);
     printWindow.document.close();
@@ -809,11 +935,12 @@
       const endDate = document.getElementById("report-end-date").value;
       const target = form.elements["report-target"].value;
       const layout = form.elements["report-layout"].value;
+      const sort = form.elements["report-sort"].value;
 
       if (!startDate || !endDate) return alert("기간을 입력해주세요.");
 
       cleanup(); // Close and restore
-      await generateStockReport({ startDate, endDate, target, layout });
+      await generateStockReport({ startDate, endDate, target, layout, sort });
     };
 
     // Close Button
@@ -855,7 +982,7 @@
     endDateEl.value = end;
   }
 
-  async function generateStockReport({ startDate, endDate, target, layout }) {
+  async function generateStockReport({ startDate, endDate, target, layout, sort }) {
     // 1. Fetch Data
     let itemsToProcess = [];
 
@@ -892,16 +1019,79 @@
     const reportItems = [];
 
     itemsToProcess.forEach(item => {
-      const itemLogs = logs.filter(l => l.inventory_id === item.id);
+      let itemLogs = logs.filter(l => l.inventory_id === item.id);
 
-      // Split Logs based on usage_date
+      // Check for real 'Initial Registration' log
+      const hasInitialLog = itemLogs.some(l => l.subject === '최초 등록');
+      if (!hasInitialLog) {
+        // Calculate Virtual Initial Amount
+        let totalUsageDiff = 0; // outcomes - incomes (excluding 최초 등록)
+        const additive = ["최초 등록", "구입", "수량 조정(증가)", "이월", "잔량 조정(증가)"];
+        itemLogs.forEach(l => {
+          if (l.subject === '최초 등록') return;
+          const amt = l.amount || 0;
+          if (additive.includes(l.subject)) {
+            totalUsageDiff -= amt;
+          } else {
+            totalUsageDiff += amt;
+          }
+        });
+        const initialAmount = parseFloat((item.current_amount + totalUsageDiff).toFixed(2));
+
+        // Find the earliest transaction date to prevent virtual initial date from being after transactions
+        let earliestLogDate = null;
+        itemLogs.forEach(l => {
+          if (l.usage_date) {
+            const dStr = l.usage_date.substring(0, 10);
+            if (!earliestLogDate || dStr < earliestLogDate) {
+              earliestLogDate = dStr;
+            }
+          }
+        });
+
+        const createdDate = item.created_at ? item.created_at.split('T')[0] : null;
+        const purchaseDate = item.purchase_date;
+
+        let initialDate = purchaseDate || createdDate || earliestLogDate || (new Date().toISOString().split('T')[0]);
+        if (earliestLogDate && initialDate > earliestLogDate) {
+          initialDate = earliestLogDate;
+        }
+
+        const virtualInitialLog = {
+          inventory_id: item.id,
+          usage_date: initialDate,
+          subject: '최초 등록',
+          period: '-',
+          amount: initialAmount,
+          created_at: item.created_at || new Date().toISOString()
+        };
+        // Add to itemLogs
+        itemLogs = [...itemLogs, virtualInitialLog];
+        // Sort itemLogs by usage_date and created_at
+        itemLogs.sort((a, b) => {
+          const dateA = a.usage_date ? a.usage_date.substring(0, 10) : "";
+          const dateB = b.usage_date ? b.usage_date.substring(0, 10) : "";
+          if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+          // If dates are equal, '최초 등록' should always come first
+          if (a.subject === '최초 등록') return -1;
+          if (b.subject === '최초 등록') return 1;
+
+          return (a.created_at || "").localeCompare(b.created_at || "");
+        });
+      }
+
+      // Split Logs based on usage_date (normalized to YYYY-MM-DD for comparison)
       const beforeLogs = itemLogs.filter(l => {
-        const d = l.usage_date;
-        return d < startDate; // startDate is "YYYY-MM-DD"
+        const d = l.usage_date ? l.usage_date.substring(0, 10) : "";
+        const start = startDate ? startDate.substring(0, 10) : "";
+        return d < start;
       });
       const periodLogs = itemLogs.filter(l => {
-        const d = l.usage_date;
-        return d >= startDate && d <= endDate;
+        const d = l.usage_date ? l.usage_date.substring(0, 10) : "";
+        const start = startDate ? startDate.substring(0, 10) : "";
+        const end = endDate ? endDate.substring(0, 10) : "";
+        return d >= start && d <= end;
       });
 
       // Calculate Brought Forward (기초 재고)
@@ -964,12 +1154,47 @@
 
     if (reportItems.length === 0) return alert("해당 조건에 맞는 데이터가 없습니다.");
 
+    // Sort reportItems based on 'sort' option
+    if (sort === "name_kor") {
+      reportItems.sort((a, b) => {
+        const nameA = a.info.name_kor || "";
+        const nameB = b.info.name_kor || "";
+        return nameA.localeCompare(nameB, 'ko');
+      });
+    } else if (sort === "id_asc") {
+      reportItems.sort((a, b) => (a.info.id || 0) - (b.info.id || 0));
+    } else if (sort === "cas_rn") {
+      reportItems.sort((a, b) => {
+        const casA = a.info.cas_rn || "";
+        const casB = b.info.cas_rn || "";
+        if (casA === "-" || !casA) return 1;
+        if (casB === "-" || !casB) return -1;
+        return casA.localeCompare(casB);
+      });
+    } else if (sort === "classification_group") {
+      // Sort alphabetically by classification, then by name_kor inside
+      reportItems.sort((a, b) => {
+        const clsA = a.info.classification || "미지정";
+        const clsB = b.info.classification || "미지정";
+        const compCls = clsA.localeCompare(clsB, 'ko');
+        if (compCls !== 0) return compCls;
+
+        const nameA = a.info.name_kor || "";
+        const nameB = b.info.name_kor || "";
+        return nameA.localeCompare(nameB, 'ko');
+      });
+    }
+
     // 4. Generate HTML
-    renderStockReportHtml(reportItems, { startDate, endDate, layout });
+    renderStockReportHtml(reportItems, { startDate, endDate, layout, sort });
   }
 
-  function renderStockReportHtml(items, { startDate, endDate, layout }) {
+  function renderStockReportHtml(items, { startDate, endDate, layout, sort }) {
     const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("팝업 차단을 해제해주세요.");
+      return;
+    }
 
     const styles = `
           @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
@@ -977,62 +1202,146 @@
           .page-break { page-break-after: always; display: block; clear: both; }
           .item-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #000; }
           .item-table th, .item-table td { border: 1px solid #000; padding: 4px; text-align: center; }
-          .item-table th { background: #f0f0f0; }
-          .header { text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 10px; margin-top: 0; }
+          .item-table th { background: #f5f5f5; }
           .item-header { background: #e0e0e0; padding: 5px; font-weight: bold; border: 1px solid #000; border-bottom: none; display: flex; justify-content: space-between; }
+          .print-header { text-align: center; margin-bottom: 15px; width: 100%; }
+          .print-header .title { font-size: 22px; font-weight: bold; text-align: center; }
+          .print-header .date { text-align: right; font-size: 11px; margin-top: 5px; font-weight: normal; }
+          .print-layout-table { width: 100%; border-collapse: collapse; border: none; }
+          .print-layout-table td { border: none; padding: 0; }
+          .print-layout-table tr { page-break-inside: avoid; }
           
           @media print {
               body { padding: 5mm; }
               .page-break { page-break-after: always; }
               /* Ensure the grid fits on one page */
-              .report-grid { height: 92vh !important; }
+              .report-grid { height: 80vh !important; }
           }
       `;
 
+    const headerHtml = `
+      <div class="print-header">
+          <div class="title">약품 수불대장</div>
+          <div class="date">${startDate} ~ ${endDate}</div>
+      </div>
+    `;
+
     let bodyContent = "";
 
-    if (layout === '1_per_page') {
+    if (sort === 'classification_group') {
+      // Group items by classification
+      const groups = {};
       items.forEach(item => {
-        bodyContent += '<div class="page-break">';
-        bodyContent += buildSingleItemTable(item);
-        bodyContent += '</div>';
+        const cls = item.info.classification || "미지정";
+        if (!groups[cls]) groups[cls] = [];
+        groups[cls].push(item);
       });
-    } else if (layout === '4_per_page') {
-      // Chunk into 4
-      for (let i = 0; i < items.length; i += 4) {
-        const slice = items.slice(i, i + 4);
-        const isFirstPage = (i === 0);
-        const gridHeight = "88vh";
 
-        // If not first page, add a spacer to match the header height
-        if (!isFirstPage) {
-          bodyContent += `<div class="header" style="visibility: hidden; margin-bottom: 10px;">수불대장</div>`;
-        }
+      // Keys are already sorted alphabetically since items was sorted beforehand
+      const sortedKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'ko'));
 
-        bodyContent += `<div class="page-break report-grid" style="display:grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: ${gridHeight}; gap: 10px; padding: 5px; box-sizing: border-box;">`;
-        slice.forEach(item => {
-          bodyContent += '<div style="overflow: hidden; display: flex; flex-direction: column;">';
-          bodyContent += buildSingleItemTable(item);
+      if (layout === '1_per_page') {
+        sortedKeys.forEach(cls => {
+          groups[cls].forEach(item => {
+            bodyContent += '<div class="page-break">';
+            bodyContent += `
+              <div class="print-header">
+                  <div class="title">약품 수불대장 [분류: ${cls}]</div>
+                  <div class="date">${startDate} ~ ${endDate}</div>
+              </div>
+            `;
+            bodyContent += buildSingleItemTable(item, '1_per_page');
+            bodyContent += '</div>';
+          });
+        });
+      } else if (layout === '4_per_page') {
+        sortedKeys.forEach(cls => {
+          const clsItems = groups[cls];
+          for (let i = 0; i < clsItems.length; i += 4) {
+            const slice = clsItems.slice(i, i + 4);
+            const gridHeight = "80vh";
+
+            bodyContent += '<div class="page-break">';
+            bodyContent += `
+              <div class="print-header">
+                  <div class="title">약품 수불대장 [분류: ${cls}]</div>
+                  <div class="date">${startDate} ~ ${endDate}</div>
+              </div>
+            `;
+            bodyContent += `<div class="report-grid" style="display:grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: ${gridHeight}; gap: 10px; padding: 5px; box-sizing: border-box;">`;
+            slice.forEach(item => {
+              bodyContent += '<div style="overflow: hidden; display: flex; flex-direction: column;">';
+              bodyContent += buildSingleItemTable(item, '4_per_page');
+              bodyContent += '</div>';
+            });
+            bodyContent += '</div>'; // close report-grid
+            bodyContent += '</div>'; // close page-break
+          }
+        });
+      } else { // continuous (feed)
+        bodyContent += '<table class="print-layout-table">';
+        bodyContent += `<thead><tr><td>${headerHtml}</td></tr></thead>`;
+        bodyContent += '<tbody>';
+        sortedKeys.forEach((cls, clsIdx) => {
+          const trStyle = clsIdx > 0 ? 'page-break-before: always;' : '';
+          bodyContent += `<tr style="${trStyle}"><td style="padding-top: 15px; padding-bottom: 10px;"><h2 style="font-size: 16px; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 15px; font-weight: bold;">분류: ${cls}</h2></td></tr>`;
+          groups[cls].forEach(item => {
+            bodyContent += '<tr><td style="padding-bottom: 20px;">';
+            bodyContent += buildSingleItemTable(item, 'continuous');
+            bodyContent += '</td></tr>';
+          });
+        });
+        bodyContent += '</tbody>';
+        bodyContent += '</table>';
+      }
+    } else {
+      // Standard layout rendering
+      if (layout === '1_per_page') {
+        items.forEach(item => {
+          bodyContent += '<div class="page-break">';
+          bodyContent += headerHtml;
+          bodyContent += buildSingleItemTable(item, '1_per_page');
           bodyContent += '</div>';
         });
-        bodyContent += '</div>';
+      } else if (layout === '4_per_page') {
+        // Chunk into 4
+        for (let i = 0; i < items.length; i += 4) {
+          const slice = items.slice(i, i + 4);
+          const gridHeight = "80vh";
+
+          bodyContent += '<div class="page-break">';
+          bodyContent += headerHtml;
+          bodyContent += `<div class="report-grid" style="display:grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: ${gridHeight}; gap: 10px; padding: 5px; box-sizing: border-box;">`;
+          slice.forEach(item => {
+            bodyContent += '<div style="overflow: hidden; display: flex; flex-direction: column;">';
+            bodyContent += buildSingleItemTable(item, '4_per_page');
+            bodyContent += '</div>';
+          });
+          bodyContent += '</div>'; // close report-grid
+          bodyContent += '</div>'; // close page-break
+        }
+      } else { // continuous (feed)
+        bodyContent += '<table class="print-layout-table">';
+        bodyContent += `<thead><tr><td>${headerHtml}</td></tr></thead>`;
+        bodyContent += '<tbody>';
+        items.forEach(item => {
+          bodyContent += '<tr><td style="padding-bottom: 20px;">';
+          bodyContent += buildSingleItemTable(item, 'continuous');
+          bodyContent += '</td></tr>';
+        });
+        bodyContent += '</tbody>';
+        bodyContent += '</table>';
       }
-    } else { // continuous (feed)
-      items.forEach(item => {
-        bodyContent += buildSingleItemTable(item);
-        bodyContent += '<br>';
-      });
     }
 
     const html = `
           <!DOCTYPE html>
           <html>
           <head>
-              <title>수불대장</title>
+              <title>약품 수불대장</title>
               <style>${styles}</style>
           </head>
           <body>
-              <h1 class="header">수불대장 (${startDate} ~ ${endDate})</h1>
               ${bodyContent}
               <script>
                   window.onload = function(){ 
@@ -1047,12 +1356,13 @@
     printWindow.document.close();
   }
 
-  function buildSingleItemTable(data) {
+  function buildSingleItemTable(data, layout) {
     const { info, broughtForward, logs } = data;
     const unit = info.unit || "";
     const nameKor = info.name_kor || "이름 없음";
 
     let rows = "";
+    let rowCount = 0;
 
     // 1. Brought Forward Row - Only show if non-zero
     let currentBalance = broughtForward;
@@ -1066,6 +1376,7 @@
                   <td>-</td>
               </tr>
           `;
+      rowCount++;
     }
 
     // 2. Logs
@@ -1078,7 +1389,7 @@
       if (isIncome) currentBalance += amt;
       else currentBalance -= amt;
 
-      const date = log.usage_date || "-";
+      const date = log.usage_date ? log.usage_date.substring(0, 10) : "-";
       // If subject is '최초 등록' or period is '기타', simplify the text
       let subjectStr = log.subject;
       if (log.subject !== "최초 등록" && log.period && log.period !== '-' && log.period !== '기타') {
@@ -1095,14 +1406,65 @@
                   <td></td>
               </tr>
           `;
+      rowCount++;
     });
 
+    // 3. Fill page with empty rows
+    let minRows = 12;
+    if (layout === '4_per_page') {
+      minRows = 5;
+    } else if (layout === '1_per_page') {
+      minRows = 15;
+    } else {
+      minRows = 12;
+    }
+
+    const emptyRowsCount = Math.max(0, minRows - rowCount);
+    for (let i = 0; i < emptyRowsCount; i++) {
+      rows += `
+              <tr>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+              </tr>
+          `;
+    }
+
+    const formulaStr = (info.formula && info.formula !== "-") ? `(${info.formula})` : "";
+    const isHazardousStr = (info.school_hazardous_chemical === '○' || info.toxic_substance === '○') ? 'O' : 'X';
+
     return `
-          <div style="border: 2px solid #000; padding: 5px; height: 100%; box-sizing: border-box; overflow: hidden;">
+          <div style="padding: 5px; height: 100%; box-sizing: border-box; overflow: hidden;">
               <div class="item-header" style="border:none; background:none; border-bottom:1px solid #000; margin-bottom:5px;">
                   <span style="font-size: 1.1em;">(No.${info.id}) ${nameKor}</span>
                   <span style="white-space: nowrap; margin-left: 10px;">CAS: ${info.cas_rn || '-'} / 단위: ${unit}</span>
               </div>
+              
+              <!-- Chemical Info Table -->
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #000; font-size: 11px; font-family: 'Noto Sans KR', sans-serif;">
+                  <tr style="background: #fafafa;">
+                      <td style="width: 20%; background: #f5f5f5; font-weight: bold; border: 1px solid #000; padding: 6px; text-align: center; color: #333;">약품명</td>
+                      <td style="width: 30%; border: 1px solid #000; padding: 6px; text-align: center; color: #0020d0; font-style: italic; font-weight: bold;">${nameKor}${formulaStr}</td>
+                      <td style="width: 20%; background: #f5f5f5; font-weight: bold; border: 1px solid #000; padding: 6px; text-align: center; color: #333;">유효기간</td>
+                      <td style="width: 30%; border: 1px solid #000; padding: 6px; text-align: center; color: #0020d0; font-style: italic; font-weight: bold;"></td>
+                  </tr>
+                  <tr>
+                      <td style="background: #f5f5f5; font-weight: bold; border: 1px solid #000; padding: 6px; text-align: center; color: #333;">농도</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: #0020d0; font-style: italic; font-weight: bold;">${info.concentration_text || '-'}</td>
+                      <td style="background: #f5f5f5; font-weight: bold; border: 1px solid #000; padding: 6px; text-align: center; color: #333;">주용도</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: #0020d0; font-style: italic; font-weight: bold;">실험용</td>
+                  </tr>
+                  <tr>
+                      <td style="background: #f5f5f5; font-weight: bold; border: 1px solid #000; padding: 6px; text-align: center; color: #333;">유해화학물질 여부</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: #0020d0; font-style: italic; font-weight: bold;">${isHazardousStr}</td>
+                      <td style="background: #f5f5f5; font-weight: bold; border: 1px solid #000; padding: 6px; text-align: center; color: #333;">단위</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: #0020d0; font-style: italic; font-weight: bold;">${unit || '-'}</td>
+                  </tr>
+              </table>
+
               <table class="item-table" style="margin:0; border:none;">
                   <thead>
                       <tr>
